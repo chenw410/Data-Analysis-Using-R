@@ -1,0 +1,632 @@
+---
+title: "Final Report: COVID-19 Case Rate vs Population Demographics and Mask Policy"
+author: "Chen WANG, XUAN LI"
+date: "2022-12-19"
+output: html_document
+---
+reload the data
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(lmtest)
+library(sandwich)
+library(tidyverse)
+library(magrittr)
+library(ggplot2)
+library(patchwork)
+library(stargazer)
+library(tinytex)
+library(dplyr)
+library(car)
+library(MASS)
+library(corrplot)
+#install.packages('scico')
+library(scico)
+#install.packages("kableExtra")
+library(kableExtra)
+setwd("C:/Users/wangchen/Desktop/897/final report")
+getwd()
+```
+
+```{r variables, warning=FALSE, results='hide'}
+data <- read.csv("data_psacalc.csv", header = TRUE)
+data <- rename(data,c(adm_2 = administered.02.01,
+                adm_4 = administered.04.01,
+                adm_6 = administered.06.01,
+                adm_8 = administered.08.01,
+                adm_9 = administered.09.21,
+                mask_md = No_legal_mask_mandate))
+```
+
+categorical variable counts:
+```{r}
+cat('Count of states that enforced a mask mandate: ', 
+    length(data$mask_md[data$mask_md==1]))
+
+cat('\nCount of states did not enforce a mask mandate: ', 
+    length(data$mask_md[data$mask_md==0]))
+```
+
+```{r}
+data_c <- na.omit(data[, c('state','adm_2',
+                 'adm_4',
+                 'adm_6',
+                 'adm_8',
+                 'adm_9',
+                 'exp',
+                 'phexp1',
+                 'vaxref_jan',
+                 'nodoc',
+                 'dmargin',
+                 'density',
+                 'poverty',
+                 'plus65',
+                 'mask_md')])
+```
+
+
+```{r}
+#Here, we look at monthly new vaccinations instead of cumulative vaccinations.
+data_month <- na.omit(data[,c('state',"exp", 
+                         "phexp1", 
+                         "vaxref_jan", 
+                         "nodoc", 
+                         "dmargin", 
+                         "density", 
+                         "poverty", 
+                         "plus65",
+                         "mask_md")]) 
+#Subtractions to obtain the monthly tallies
+data_month$feb_adm <- data$administered.02.28 - data$adm_2
+data_month$april_adm <- data$administered.04.30 - data$administered.03.31
+data_month$june_adm <- data$administered.06.30 - data$administered.05.31
+data_month$august_adm <- data$administered.08.31 - data$administered.07.31
+#For september we take 21st as end of the month.
+data_month$sept_adm <- data$adm_9 - data$administered.08.31
+
+sum(is.na(data_month$feb_adm))
+sum(is.na(data_month$april_adm))
+sum(is.na(data_month$june_adm))
+sum(is.na(data_month$august_adm))
+sum(is.na(data_month$sept_adm))
+```
+
+Descriptive statistics
+```{r}
+dataR <- cbind(data_c,data_month)
+dataR <- dataR[, !duplicated(colnames(dataR))]
+dataR <- na.omit(dataR)
+stargazer(dataR,
+          type = 'html', 
+          min.max=TRUE, mean.sd = TRUE, 
+          nobs = TRUE, median = TRUE, iqr = FALSE,
+          digits=2, align=T,
+          title = "Table 1. Descriptive Statistics", 
+          out='table.doc')
+```
+
+Correlation matrix
+```{r}
+#correlation matrix
+cor_max= cor(data_c[,-c(1:3,5:6)], use="complete.obs", method="pearson")
+
+stargazer(cor(cor_max), 
+          title = "Table 2. variable correlations",
+          type = "html",
+          out='covariance.doc')
+ 
+pdf("corrplot.pdf", width = 5, height = 5) 
+corrplot(cor(data_c[,-c(1:3,5:6)]),  
+         col = scico(200, direction = -1, palette = "batlow"), 
+         tl.col = "black") 
+dev.off() 
+```
+
+```{r}
+#This section produces the cross-sectional regression tables for April 1, June 1, and August 1 with additional controls.
+
+mod1 <- lm(adm_2 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=dataR)
+
+mod2 <- lm(adm_4 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=dataR)
+
+mod3 <- lm(adm_6 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=dataR)
+
+mod4 <- lm(adm_8 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=dataR)
+
+mod5 <- lm(adm_9 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=dataR)
+
+#examine the multicolinearity
+kable(vif(mod3))
+
+stargazer(mod2, mod3, mod4,
+          title = 'Table 3. regression result', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression1.doc')
+
+```
+Scatterplot for linearity (2 ways of plots)
+```{r}
+# linearity
+scatterplotMatrix(data_c[,-c(1:3,5:6,15)],
+                  cex = .5,
+                  pch = 16,
+                  col = rgb(0,0,0,1/32),
+                  diagonal = list(method = "histogram",
+                                  breaks = 20),
+                  cex.labels = 0.5,
+                  regLine = list(method = lm,
+                                 lty = 1,
+                                 lwd = 1,
+                                 col = 1),
+                  smooth = list(method = "loessLine",
+                                lty.smooth = 2,
+                                lwd.smooth = 1,
+                                col.smooth = 2,
+                                lty.spread = 3,
+                                lwd.spread = 1,
+                                col.spread = 2),
+                  main = "Figuer 2: Scatter Plot Matrix")
+```
+
+```{r}
+scatterplot(adm_8 ~ exp,  
+            data = data_c, 
+            boxplots = F, 
+            grid = F, 
+            jitter = list(x = 1), 
+            col = rgb(0,0,0,.25), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red",
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+scatterplot(adm_8 ~ phexp1,  
+            data = data_c, 
+            boxplots = F, 
+            grid = F, 
+            jitter = list(x = 1), 
+            col = rgb(0,0,0,.25), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red",
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+scatterplot(adm_8 ~ vaxref_jan,  
+            data = data_c, 
+            boxplots = F, 
+            grid = F, 
+            jitter = list(x = 1), 
+            col = rgb(0,0,0,.25), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red",
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+scatterplot(adm_8 ~ nodoc,  
+            data = data_c, 
+            boxplots = F, 
+            grid = F, 
+            jitter = list(x = 1), 
+            col = rgb(0,0,0,.25), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red",
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+scatterplot(adm_8 ~ dmargin,  
+            data = data_c, 
+            boxplots = F, 
+            grid = F, 
+            jitter = list(x = 1), 
+            col = rgb(0,0,0,.25), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red",
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+scatterplot(adm_8 ~ density,  
+            data = data_c, 
+            boxplots = F, 
+            grid = F, 
+            jitter = list(x = 1), 
+            col = rgb(0,0,0,.25), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red",
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+scatterplot(adm_8 ~ poverty,  
+            data = data_c, 
+            boxplots = F, 
+            grid = F, 
+            jitter = list(x = 1), 
+            col = rgb(0,0,0,.25), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red",
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+scatterplot(adm_8 ~ plus65,  
+            data = data_c, 
+            boxplots = F, 
+            grid = F, 
+            jitter = list(x = 1), 
+            col = rgb(0,0,0,.25), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red",
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+
+```
+
+Scatterplot of homoskedasticity
+```{r}
+plot(mod4, which = 1)
+scatterplot(x = fitted(mod4),  
+            y = resid(mod4), 
+            main = "Residuals vs Fitted, model 4", 
+            boxplots = F, 
+            grid = F, 
+            col = rgb(0,0,0,.5), 
+            pch = 16, 
+            cex = .5, 
+            regLine = F, 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red", 
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red"))
+
+scatterplot(x = fitted(mod3),  
+            y = abs(resid(mod3)), 
+            main = "Absolute value of Residuals vs Fitted, model 4",
+            boxplots = F, 
+            grid = F, 
+            col = rgb(0,0,0,.5), 
+            pch = 16, 
+            cex = .5, 
+            regLine = list(method = lm, 
+                           lty = 1, 
+                           lwd = 2, 
+                           col = 1), 
+            smooth = list(method = loess, 
+                          spread = T, 
+                          lty.smooth = 2, 
+                          lwd.smooth = 2, 
+                          col.smooth = "red", 
+                          lty.spread = 3, 
+                          lwd.spread = 2, 
+                          col.spread = "red")) 
+
+bptest(mod3) #a Breusch-Pagan Test, we fail to reject the null hypothesis. We do not have sufficient evidence to say that heteroscedasticity is present in the regression model.(which means homoskedasticity)
+```   
+Normality of Residuals
+```{r}
+hist(resid(mod4), border = "white", main = "Histogram of model 4 residuals", breaks = 25) 
+qqPlot(rstandard(mod4), 
+       main = "Normal Q-Q, model 4", 
+       col = rgb(0,0,0,.25), 
+       pch = 16, 
+       cex = .5, 
+       col.lines = "red", 
+       lwd = 1, 
+       grid = F)
+```
+From 1st Table, 41 and 31 has higher phexp1, extremely lower density, no obvious pattern
+Identified by cook's distance, Alaska is special with extremely phexp1 and lowest density; all 3 observations have low density
+```{r}
+# from qqplot and previous scatterplot
+kable(data_c[c(36, 41, 31), c("adm_6", "exp", "phexp1", "vaxref_jan", "nodoc", "dmargin", "density", "poverty", "plus65")], "html")
+plot(mod4, which = 4) 
+plot(mod4, which = 5)
+#from cook's distance
+kable(data_c[c(2, 31, 41), c("adm_6", "exp", "phexp1", "vaxref_jan", "nodoc", "dmargin", "density", "poverty", "plus65")], "html")
+data_c$cooksd <- cooks.distance(mod4)
+#from rstudent
+data_c$rstudent <- rstudent(mod4)
+plot(data_c$rstudent,
+     xlab = "Index",
+     ylab = "Studentized residuals",
+     pch = 19,
+     main = "Distribution of Studentized Residuals")
+abline(h=0, col = "red")
+abline(h=2, col = "blue")
+abline(h=-2, col = "blue")
+abline(h=3, col = "green")
+abline(h=-3, col = "green")
+out1 <- subset(data_c, abs(data_c$rstudent) > 3 )
+#c(41)
+#from leverage
+data_c$leverage <- hatvalues(mod4)
+(2*9+2)/50
+plot(data_c$leverage,
+     xlab = "Index",
+     ylab = "Leverage",
+     pch = 19,
+     main = "One Rule of Thumb")
+abline(h=.4, col="blue")
+out2 <- subset(data_c, abs(data_c$leverage) > 0.5 )
+#c(2)
+kable(data_c[c(2, 31, 36, 41, 45), c("state","adm_6", "exp", "phexp1", "vaxref_jan", "nodoc", "dmargin", "density", "poverty", "plus65")], "html")
+```
+
+
+Corrected model, AIC improves
+```{r}
+data_c$phexp1c = data_c$phexp1 - mean(data_c$phexp1)
+data_c$phexp1c2 = data_c$phexp1c^2
+mod4_5 <- rlm(adm_8 ~ exp + phexp1c2 + phexp1c + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=data_c)
+stargazer(mod4, mod4_5,
+          title = 'Table 5. Quadratic effect of public health expenditure', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression6.doc')
+
+data_c$plus65c = data_c$plus65 - mean(data_c$plus65)
+data_c$plus65c2 = data_c$plus65c^2
+mod4_6 <- rlm(adm_8 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c2 + plus65c + mask_md, data=data_c)
+stargazer(mod4, mod4_6,
+          title = 'Table 5. Quadratic effect of population above 65 years old', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression7.doc')
+
+mod4_2 <- rlm(adm_8 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data = data_c) 
+summary(mod4_2)
+stargazer(mod4, mod4_2,  
+          title = 'Table 5. Third model after correction', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression2.doc') 
+AIC(mod4)/nobs(mod4)
+AIC(mod4_2)/nobs(mod4_2)
+
+mod2_2 <- rlm(adm_4 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data = data_c) 
+mod3_2 <- rlm(adm_6 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data = data_c) 
+stargazer(mod2_2, mod3_2, mod4_2, 
+          title = 'Table 6. Corrected models',
+          ci=TRUE, ci.level = 0.95,
+          single.row = FALSE,
+          digits = 2,
+          no.space = TRUE,
+          type = 'html',
+          out = 'regression3.doc')
+```
+
+```{r}
+#interaction effects
+data_c$expc = data_c$exp - mean(data_c$exp)
+mod1_4 <- rlm(adm_2 ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_c)
+
+mod2_4 <- rlm(adm_4 ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_c)
+
+mod3_4 <- rlm(adm_6 ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_c)
+
+mod4_4 <- rlm(adm_8 ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_c)
+
+mod5_4 <- rlm(adm_9 ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_c)
+
+
+stargazer(mod2_4, mod3_4, mod4_4,
+          title = 'Table 7. Interection effect of health expenditure', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression4.doc')
+```
+
+```{r}
+#interaction effects 2
+data_c$plus65c <- data_c$plus65 - mean(data_c$plus65)
+mod1_3 <- rlm(adm_2 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c:mask_md, data=data_c)
+
+mod2_3 <- rlm(adm_4 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c:mask_md, data=data_c)
+
+mod3_3 <- rlm(adm_6 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c:mask_md, data=data_c)
+
+mod4_3 <- rlm(adm_8 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c:mask_md, data=data_c)
+
+mod5_3 <- rlm(adm_9 ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c:mask_md, data=data_c)
+
+
+stargazer(mod2_3, mod3_3, mod4_3,
+          title = 'Table 3. regression result', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression5.doc')
+```
+
+```{r}
+anova(mod4, mod4_4)
+anova(mod4, mod4_3)
+
+stargazer(anova(mod4, mod4_4), 
+          type = "html",
+          out = 'anova1.doc')
+stargazer(anova(mod4, mod4_3),
+          type = 'html',
+          out = 'anova2.doc')
+#manually collected them into a table
+```
+
+```{r}
+hist(data_month$feb_adm,breaks = 10, main = 'Figure 8.Histogram of feb_adm')
+hist(data_month$april_adm,breaks = 10, main = 'Figure 8.Histogram of april_adm')
+hist(data_month$june_adm,breaks = 10, main = 'Figure 8.Histogram of june_adm')
+hist(data_month$august_adm,breaks = 10, main = 'Figure 8.Histogram of august_adm')
+hist(data_month$sept_adm,breaks = 10, main = 'Figure 8.Histogram of sept_adm')
+```
+
+Another new model, dep var changes
+
+```{r}
+#Base Model
+mod_feb <- lm(feb_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=data_month)
+
+mod_apr <- lm(april_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=data_month)
+
+mod_jun <- lm(june_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=data_month)
+
+mod_aug <- lm(august_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=data_month)
+
+mod_sep <- lm(sept_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md, data=data_month)
+
+#Table
+stargazer(mod_apr, mod_jun,mod_aug,
+          title = 'Table 3. regression result', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression5.doc')
+
+```
+
+
+```{r}
+#Models of interaction effects
+
+data_month$expc = data_month$exp - mean(data_month$exp)
+mod_feb_4 <- lm(feb_adm ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_month)
+
+mod_apr_4 <- lm(april_adm ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_month)
+
+mod_jun_4 <- lm(june_adm ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_month)
+
+mod_aug_4 <- lm(august_adm ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_month)
+
+mod_sep_4 <- lm(sept_adm ~ expc + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65 + mask_md + expc : mask_md, data=data_month)
+
+#Table
+stargazer(mod_apr_4, mod_jun_4,mod_aug_4,
+          title = 'Table 3. regression result', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression6.doc')
+
+```
+
+
+```{r}
+#Models of interaction effects
+data_month$plus65c = data_month$plus65 - mean(data_month$plus65)
+mod_feb_3 <- lm(feb_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c : mask_md, data=data_month)
+
+mod_apr_3 <- lm(april_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c : mask_md, data=data_month)
+
+mod_jun_3 <- lm(june_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c : mask_md, data=data_month)
+
+mod_aug_3 <- lm(august_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c : mask_md, data=data_month)
+
+mod_sep_3 <- lm(sept_adm ~ exp + phexp1 + vaxref_jan + nodoc + dmargin + density + poverty + plus65c + mask_md + plus65c : mask_md, data=data_month)
+
+#Table
+stargazer(mod_apr_3, mod_jun_3,mod_aug_3,
+          title = 'Table 3. regression result', 
+          ci=TRUE, ci.level = 0.95, 
+          single.row =FALSE, 
+          digits = 2, 
+          no.space = TRUE, 
+          type ='html',
+          out = 'regression7.doc')
+
+```
+
+
